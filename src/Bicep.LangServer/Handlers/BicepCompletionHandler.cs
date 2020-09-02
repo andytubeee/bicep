@@ -4,6 +4,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Bicep.Core;
+using Bicep.LanguageServer.CompilationManager;
 using Bicep.LanguageServer.Utils;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -12,8 +13,12 @@ namespace Bicep.LanguageServer.Handlers
 {
     public class BicepCompletionHandler : CompletionHandler
     {
-        public BicepCompletionHandler() : base(CreateRegistrationOptions())
+        private ICompilationManager compilationManager;
+
+        public BicepCompletionHandler(ICompilationManager compilationManager)
+            : base(CreateRegistrationOptions())
         {
+            this.compilationManager = compilationManager;
         }
 
         public override Task<CompletionList> Handle(CompletionParams request, CancellationToken cancellationToken)
