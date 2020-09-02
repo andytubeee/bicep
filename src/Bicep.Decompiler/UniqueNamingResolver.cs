@@ -11,6 +11,8 @@ namespace Bicep.Decompiler
     {
         private readonly Dictionary<string, Dictionary<NameType, string>> assignedNames = new Dictionary<string, Dictionary<NameType, string>>(StringComparer.OrdinalIgnoreCase);
 
+        private readonly Dictionary<string, string> assignedResourceNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         private readonly IExpressionsProvider expressionsProvider;
 
         public UniqueNamingResolver(IExpressionsProvider expressionsProvider)
@@ -20,7 +22,7 @@ namespace Bicep.Decompiler
 
         private static string EscapeIdentifier(string identifier)
         {
-            return Regex.Replace(identifier, "[^a-zA-Z0-9_]", "_");
+            return Regex.Replace(identifier, "[^a-zA-Z0-9_]+", "_").Trim('_');
         }
 
         public string? TryLookupName(NameType nameType, string desiredName)
@@ -40,7 +42,7 @@ namespace Bicep.Decompiler
             return name;
         }
 
-        public string RequestName(NameType nameType, string desiredName)
+        public string? TryRequestName(NameType nameType, string desiredName)
         {
             desiredName = EscapeIdentifier(desiredName);
 
@@ -56,7 +58,7 @@ namespace Bicep.Decompiler
             {
                 if (nameByType.ContainsKey(nameType))
                 {
-                    throw new ArgumentException($"Request for duplicate name {desiredName} with type {nameType}");
+                    return null;
                 }
                 
                 // TODO technically a naming clash is still possible here but unlikely
@@ -72,18 +74,41 @@ namespace Bicep.Decompiler
             typeString = typeString.TrimEnd('/');
 
             var nameString = expressionsProvider.SerializeExpression(nameExpression);
+            var assignedResourceKey = EscapeIdentifier($"{typeString}_{nameString}");
 
-            return TryLookupName(NameType.Resource, $"{typeString}_{nameString}");
+            if (!assignedResourceNames.TryGetValue(assignedResourceKey, out var name))
+            {
+                return null;
+            }
+
+            return name;
         }
 
-        public string RequestResourceName(string typeString, LanguageExpression nameExpression)
+        public string? TryRequestResourceName(string typeString, LanguageExpression nameExpression)
         {
             // it's valid to include a trailing slash, so we need to normalize it
             typeString = typeString.TrimEnd('/');
 
             var nameString = expressionsProvider.SerializeExpression(nameExpression);
+            var assignedResourceKey = EscapeIdentifier($"{typeString}_{nameString}");
 
-            return RequestName(NameType.Resource, $"{typeString}_{nameString}");
+            // try to get a shorter name first if possible
+            // if we've got two resources of different types with the same name, we may be forced to qualify it
+            var unqualifiedName = TryRequestName(NameType.Resource, nameString);
+            if (unqualifiedName != null)
+            {
+                assignedResourceNames[assignedResourceKey] = unqualifiedName;
+                return unqualifiedName;
+            }
+
+            var qualifiedName = TryRequestName(NameType.Resource, $"{typeString}_{nameString}");
+            if (qualifiedName != null)
+            {
+                assignedResourceNames[assignedResourceKey] = qualifiedName;
+                return qualifiedName;
+            }
+
+            return null;
         }
     }
 }

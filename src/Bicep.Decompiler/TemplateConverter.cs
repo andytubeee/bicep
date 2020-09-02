@@ -47,17 +47,26 @@ namespace Bicep.Decompiler
         {
             foreach (var parameter in parameters)
             {
-                nameResolver.RequestName(NameType.Parameter, parameter.Name);
+                if (nameResolver.TryRequestName(NameType.Parameter, parameter.Name) == null)
+                {
+                    throw new InvalidOperationException($"Unable to pick unique name for parameter {parameter.Name}");
+                }
             }
 
             foreach (var output in outputs)
             {
-                nameResolver.RequestName(NameType.Output, output.Name);
+                if (nameResolver.TryRequestName(NameType.Output, output.Name) == null)
+                {
+                    throw new InvalidOperationException($"Unable to pick unique name for output {output.Name}");
+                }
             }
 
             foreach (var variable in variables)
             {
-                nameResolver.RequestName(NameType.Variable, variable.Name);
+                if (nameResolver.TryRequestName(NameType.Variable, variable.Name) == null)
+                {
+                    throw new InvalidOperationException($"Unable to pick unique name for variable {variable.Name}");
+                }
             }
 
             foreach (var resource in resources)
@@ -65,7 +74,10 @@ namespace Bicep.Decompiler
                 var nameString = resource["name"]?.Value<string>() ?? throw new ArgumentException($"Unable to parse 'name' for resource '{resource["name"]}'");
                 var typeString = resource["type"]?.Value<string>() ?? throw new ArgumentException($"Unable to parse 'type' for resource '{resource["name"]}'");
 
-                nameResolver.RequestResourceName(typeString, GetLanguageExpression(nameString));
+                if (nameResolver.TryRequestResourceName(typeString, GetLanguageExpression(nameString)) == null)
+                {
+                    throw new InvalidOperationException($"Unable to pick unique name for resource {typeString} {nameString}");
+                }
             }
         }
 
