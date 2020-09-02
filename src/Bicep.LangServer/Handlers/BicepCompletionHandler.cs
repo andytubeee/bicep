@@ -1,10 +1,14 @@
 ﻿// Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
-using System;
+
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Bicep.Core;
+using Bicep.Core.SemanticModel;
 using Bicep.LanguageServer.CompilationManager;
+using Bicep.LanguageServer.Completions;
 using Bicep.LanguageServer.Utils;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
@@ -13,7 +17,7 @@ namespace Bicep.LanguageServer.Handlers
 {
     public class BicepCompletionHandler : CompletionHandler
     {
-        private ICompilationManager compilationManager;
+        private readonly ICompilationManager compilationManager;
 
         public BicepCompletionHandler(ICompilationManager compilationManager)
             : base(CreateRegistrationOptions())
@@ -23,7 +27,9 @@ namespace Bicep.LanguageServer.Handlers
 
         public override Task<CompletionList> Handle(CompletionParams request, CancellationToken cancellationToken)
         {
-            return Task.FromResult(GetKeywordCompletions());
+            var completions = GetKeywordCompletions()
+                .Concat(GetSymbolCompletions(request));
+            return Task.FromResult(new CompletionList(completions, isIncomplete: false));
         }
 
         public override Task<CompletionItem> Handle(CompletionItem request, CancellationToken cancellationToken)
@@ -44,16 +50,54 @@ namespace Bicep.LanguageServer.Handlers
             TriggerCharacters = new Container<string>()
         };
 
-        private CompletionList GetKeywordCompletions()
+        private IEnumerable<CompletionItem> GetKeywordCompletions()
         {
-            return new CompletionList(
-                CreateKeywordCompletion(LanguageConstants.ParameterKeyword),
-                CreateKeywordCompletion(LanguageConstants.VariableKeyword),
-                CreateKeywordCompletion(LanguageConstants.ResourceKeyword),
-                CreateKeywordCompletion(LanguageConstants.OutputKeyword));
+            yield return CreateKeywordCompletion(LanguageConstants.ParameterKeyword);
+            yield return CreateKeywordCompletion(LanguageConstants.VariableKeyword);
+            yield return CreateKeywordCompletion(LanguageConstants.ResourceKeyword);
+            yield return CreateKeywordCompletion(LanguageConstants.OutputKeyword);
         }
 
-        private CompletionItem CreateKeywordCompletion(string keyword) =>
+        private IEnumerable<CompletionItem> GetSymbolCompletions(CompletionParams request)
+        {
+            var context = this.compilationManager.GetCompilation(request.TextDocument.Uri);
+            if (context == null)
+            {
+                return Enumerable.Empty<CompletionItem>();
+            }
+
+            var model = context.Compilation.GetSemanticModel();
+
+            return GetAccessibleSymbols(model)
+                .Select(sym => sym.ToCompletionItem());
+        }
+
+        private IEnumerable<Symbol> GetAccessibleSymbols(SemanticModel model)
+        {
+            var accessibleSymbols = new Dictionary<string, Symbol>();
+
+            // local function
+            void AddAccessibleSymbols(IDictionary<string, Symbol> result, IEnumerable<Symbol> symbols)
+            {
+                foreach (var declaration in symbols)
+                {
+                    if (result.ContainsKey(declaration.Name) == false)
+                    {
+                        result.Add(declaration.Name, declaration);
+                    }
+                }
+            }
+
+            AddAccessibleSymbols(accessibleSymbols, model.Root.AllDeclarations
+                .Where(decl => !(decl is OutputSymbol)));
+
+            AddAccessibleSymbols(accessibleSymbols, model.Root.ImportedNamespaces
+                .SelectMany(ns => ns.Descendants.OfType<FunctionSymbol>()));
+
+            return accessibleSymbols.Values;
+        }
+
+        private static CompletionItem CreateKeywordCompletion(string keyword) =>
             new CompletionItem
             {
                 Kind = CompletionItemKind.Keyword,
