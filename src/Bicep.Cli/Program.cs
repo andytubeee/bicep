@@ -33,52 +33,7 @@ namespace Bicep.Cli
         {
             var program = new Program(Console.Out, Console.Error);
 
-            if (args[0] == "decompile")
-            {
-                // TODO implement this properly
-                return program.Decompile(args[1..]);
-            }
-
             return program.Run(args);
-        }
-
-        public int Decompile(string[] files)
-        {
-            var hadErrors = false;
-            using (var loggerFactory = CreateLoggerFactory())
-            {
-                var logger = new BicepDiagnosticLogger(loggerFactory.CreateLogger("bicep"));
-                foreach (var file in files)
-                {
-                    try
-                    {
-                        var jsonInput = File.ReadAllText(file);
-                        var outputFile = Path.ChangeExtension(file, "bicep");
-
-                        var program = TemplateConverter.DecompileTemplate(jsonInput);
-                        var bicepOutput = PrintVisitor.Print(program);
-
-                        var compilation = new Compilation(SyntaxFactory.CreateFromText(bicepOutput));
-                        var diagnostics = compilation.GetSemanticModel().GetAllDiagnostics().ToArray();
-
-                        File.WriteAllText(outputFile, bicepOutput);
-
-                        var lineStarts = TextCoordinateConverter.GetLineStarts(bicepOutput);
-                        foreach (var diagnostic in diagnostics)
-                        {
-                            logger.LogDiagnostic(outputFile, diagnostic, lineStarts);
-                        }
-                    }
-                    catch (Exception exception)
-                    {
-                        this.errorWriter.WriteLine($"Decompilation failed for '{file}'");
-                        this.errorWriter.WriteLine(exception.Message);
-                        hadErrors = true;
-                    }
-                }
-            }
-
-            return hadErrors ? 1 : 0;
         }
 
         public int Run(string[] args)
@@ -92,25 +47,24 @@ namespace Bicep.Cli
                 IDiagnosticLogger logger = new BicepDiagnosticLogger(loggerFactory.CreateLogger("bicep"));
                 try
                 {
-                    switch (ArgumentParser.Parse(args))
+                    switch (ArgumentParser.TryParse(args))
                     {
                         case BuildArguments buildArguments: // build
-                            Build(logger, buildArguments);
-                            break;
+                            return Build(logger, buildArguments);
+                        case DecompileArguments decompileArguments:
+                            return Decompile(logger, decompileArguments);
                         case VersionArguments _: // --version
                             ArgumentParser.PrintVersion(this.outputWriter);
-                            break;
+                            return 0;
                         case HelpArguments _: // --help
                             ArgumentParser.PrintUsage(this.outputWriter);
-                            break;
-                        case UnrecognizedArguments unrecognizedArguments: // everything else
+                            return 0;
+                        default:
                             var exeName = ArgumentParser.GetExeName();
-                            this.errorWriter.WriteLine($"Unrecognized arguments '{unrecognizedArguments.SuppliedArguments}' specified. Use '{exeName} --help' to view available options.");
+                            var arguments = string.Join(' ', args);
+                            this.errorWriter.WriteLine($"Unrecognized arguments '{arguments}' specified. Use '{exeName} --help' to view available options.");
                             return 1;
                     }
-
-                    // return non-zero exit code on errors
-                    return logger.HasLoggedErrors ? 1 : 0;
                 }
                 catch (CommandLineException cliException)
                 {
@@ -129,20 +83,24 @@ namespace Bicep.Cli
             });
         }
 
-        private void Build(IDiagnosticLogger logger, BuildArguments arguments)
+        private int Build(IDiagnosticLogger logger, BuildArguments arguments)
         {
             var bicepPaths = arguments.Files.Select(PathHelper.ResolvePath).ToArray();
             if (arguments.OutputToStdOut)
             {
                 BuildManyFilesToStdOut(logger, bicepPaths);
-                return;
+            }
+            else
+            {
+                foreach (string bicepPath in bicepPaths)
+                {
+                    string outputPath = PathHelper.GetDefaultOutputPath(bicepPath);
+                    BuildSingleFile(logger, bicepPath, outputPath);
+                }
             }
 
-            foreach (string bicepPath in bicepPaths)
-            {
-                string outputPath = PathHelper.GetDefaultOutputPath(bicepPath);
-                BuildSingleFile(logger, bicepPath, outputPath);
-            }
+            // return non-zero exit code on errors
+            return logger.HasLoggedErrors ? 1 : 0;
         }
 
         private static void BuildSingleFile(IDiagnosticLogger logger, string bicepPath, string outputPath)
@@ -190,6 +148,47 @@ namespace Bicep.Cli
             }
             if (bicepPaths.Length > 1) {
                 writer.WriteEndArray();
+            }
+        }
+
+        public int Decompile(IDiagnosticLogger logger, DecompileArguments arguments)
+        {
+            var hadErrors = false;
+            foreach (var filePath in arguments.Files)
+            {
+                hadErrors |= !DecompileSingleFile(logger, filePath);
+            }
+
+            return hadErrors ? 1 : 0;
+        }
+
+        private bool DecompileSingleFile(IDiagnosticLogger logger, string filePath)
+        {
+            try
+            {
+                var jsonInput = File.ReadAllText(filePath);
+                var outputFile = Path.ChangeExtension(filePath, "bicep");
+
+                var program = TemplateConverter.DecompileTemplate(jsonInput);
+                var bicepOutput = PrintVisitor.Print(program);
+
+                var compilation = new Compilation(SyntaxFactory.CreateFromText(bicepOutput));
+                var diagnostics = compilation.GetSemanticModel().GetAllDiagnostics().ToArray();
+
+                File.WriteAllText(outputFile, bicepOutput);
+
+                var lineStarts = TextCoordinateConverter.GetLineStarts(bicepOutput);
+                foreach (var diagnostic in diagnostics)
+                {
+                    logger.LogDiagnostic(outputFile, diagnostic, lineStarts);
+                }
+
+                return true;
+            }
+            catch (Exception exception)
+            {
+                this.errorWriter.WriteLine($"{filePath}: {exception.Message}");
+                return false;
             }
         }
     }

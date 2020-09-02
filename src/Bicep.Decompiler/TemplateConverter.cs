@@ -808,8 +808,11 @@ namespace Bicep.Decompiler
         private ProgramSyntax Parse()
         {
             var template = JsonConvert.DeserializeObject<JObject>(content);
-            var schema = template["$schema"];
-            var functions = template["functions"];
+
+            if ((template["functions"] as JArray)?.Any() == true)
+            {
+                throw new NotImplementedException($"User defined functions are not currently supported");
+            }
 
             var parameters = ((template["parameters"] as JObject)?.Properties() ?? Enumerable.Empty<JProperty>()).ToArray();
             var resources = (template["resources"] as JArray ?? Enumerable.Empty<JToken>()).SelectMany(FlattenAndNormalizeResource).ToArray();
