@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Bicep.Core;
 using Bicep.Core.SemanticModel;
+using Bicep.Core.TypeSystem;
 using Bicep.LanguageServer.CompilationManager;
 using Bicep.LanguageServer.Completions;
 using Bicep.LanguageServer.Utils;
@@ -28,7 +29,8 @@ namespace Bicep.LanguageServer.Handlers
         public override Task<CompletionList> Handle(CompletionParams request, CancellationToken cancellationToken)
         {
             var completions = GetKeywordCompletions()
-                .Concat(GetSymbolCompletions(request));
+                .Concat(GetSymbolCompletions(request))
+                .Concat(GetPrimitiveTypeCompletions());
             return Task.FromResult(new CompletionList(completions, isIncomplete: false));
         }
 
@@ -72,6 +74,8 @@ namespace Bicep.LanguageServer.Handlers
                 .Select(sym => sym.ToCompletionItem());
         }
 
+        private IEnumerable<CompletionItem> GetPrimitiveTypeCompletions() => LanguageConstants.DeclarationTypes.Values.Select(CreateTypeCompletion);
+
         private IEnumerable<Symbol> GetAccessibleSymbols(SemanticModel model)
         {
             var accessibleSymbols = new Dictionary<string, Symbol>();
@@ -106,6 +110,17 @@ namespace Bicep.LanguageServer.Handlers
                 InsertText = keyword,
                 CommitCharacters = new Container<string>(" "),
                 Detail = keyword
+            };
+
+        private static CompletionItem CreateTypeCompletion(TypeSymbol type) =>
+            new CompletionItem
+            {
+                Kind = CompletionItemKind.Class,
+                Label = type.Name,
+                InsertTextFormat = InsertTextFormat.PlainText,
+                InsertText = type.Name,
+                CommitCharacters = new Container<string>(" "),
+                Detail = type.Name
             };
     }
 }

@@ -47,7 +47,7 @@ namespace Bicep.Core
         // types allowed to use in output and parameter declarations
         public static readonly ImmutableSortedDictionary<string, TypeSymbol> DeclarationTypes = new[] {String, Object, Int, Bool, Array}.ToImmutableSortedDictionary(type => type.Name, type => type, StringComparer.Ordinal);
 
-        public static readonly string PrimitiveTypesString = LanguageConstants.DeclarationTypes.Keys.ConcatString(ListSeparator);
+        public static readonly string DeclarationTypesString = LanguageConstants.DeclarationTypes.Keys.ConcatString(ListSeparator);
 
         public static TypeSymbol CreateParameterModifierType(TypeSymbol parameterType)
         {
